@@ -19,6 +19,14 @@ resource "azurerm_subnet" "subnet" {
   address_prefixes     = ["10.0.1.0/24"]
 }
 
+resource "azurerm_public_ip" "public_ip" {
+  name                = "jenkins-ip"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Dynamic"
+  sku                 = "Basic"
+}
+
 resource "azurerm_network_security_group" "nsg" {
   name                = "jenkins-nsg"
   location            = azurerm_resource_group.rg.location
@@ -59,13 +67,19 @@ resource "azurerm_network_security_group" "nsg" {
     source_address_prefix      = var.allowed_cidr
     destination_address_prefix = "*"
   }
-}
 
-resource "azurerm_public_ip" "public_ip" {
-  name                = "jenkins-ip"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-  allocation_method   = "Dynamic"
+  security_rule {
+    name                       = "AllowOutbound"
+    priority                   = 1004
+    direction                  = "Outbound"
+    access                     = "Allow"
+    protocol                   = "*"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+
 }
 
 resource "azurerm_network_interface" "nic" {
@@ -79,6 +93,11 @@ resource "azurerm_network_interface" "nic" {
     private_ip_address_allocation = "Dynamic"
     public_ip_address_id          = azurerm_public_ip.public_ip.id
   }
+}
+
+resource "azurerm_network_interface_security_group_association" "nic_nsg" {
+  network_interface_id      = azurerm_network_interface.nic.id
+  network_security_group_id = azurerm_network_security_group.nsg.id
 }
 
 resource "azurerm_user_assigned_identity" "identity" {
@@ -107,7 +126,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   disable_password_authentication = true
   admin_ssh_key {
     username   = var.admin_username
-    public_key = var.ssh_public_key
+    public_key = var.public_key
   }
 
   identity {
@@ -130,17 +149,14 @@ resource "azurerm_linux_virtual_machine" "vm" {
 
   custom_data = base64encode(<<EOF
 #!/bin/bash
-apt-get update -y
-apt-get install -y openjdk-17-jdk git curl docker.io
-systemctl enable docker
-systemctl start docker
-curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io.key | sudo tee   /usr/share/keyrings/jenkins-keyring.asc > /dev/null
-echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc]   https://pkg.jenkins.io/debian-stable binary/ | sudo tee   /etc/apt/sources.list.d/jenkins.list > /dev/null
-apt-get update -y
-apt-get install -y jenkins
-systemctl enable jenkins
-systemctl start jenkins
-usermod -aG docker jenkins
+sudo apt-get update -y
+apt-get install -y openjdk-17-jdk
+sudo curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | sudo tee /usr/share/keyrings/jenkins-keyring.asc > /dev/null
+sudo echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/ | sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
+sudo apt-get update -y
+sudo apt-get install -y jenkins
+sudo systemctl enable jenkins
+sudo systemctl start jenkins
 EOF
   )
 }
