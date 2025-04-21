@@ -1,4 +1,4 @@
-# Setup a Jenkins controller on EC2
+# Setup a Jenkins controller on Azure
 
 ## Pre-reqs
 
